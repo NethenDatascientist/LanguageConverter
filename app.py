@@ -3,42 +3,42 @@ import requests
 import unicodedata
 
 def convert_kannada(text, mode):
-    # Using a highly stable Google API endpoint that avoids the strict rate limits
     url = "https://translate.googleapis.com/translate_a/single"
-    params = {
-        "client": "gtx",
-        "sl": "kn",
-        "tl": "en",
-        "dt": ["t", "rm"], # 't' gets the Translation, 'rm' gets the Romanization (Transliteration)
-        "q": text
-    }
     
+    # We explicitly separate the requests: 't' for Translation, 'rm' for Transliteration
+    if mode == "Translation":
+        params = {"client": "gtx", "sl": "kn", "tl": "en", "dt": "t", "q": text}
+    else:
+        params = {"client": "gtx", "sl": "kn", "tl": "en", "dt": "rm", "q": text}
+        
     try:
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        translation = ""
-        transliteration = ""
-        
-        # Parse the Google API response safely
-        for item in data[0]:
-            if item[0] is not None:
-                translation += item[0]
-            if item[0] is None and len(item) >= 3 and item[2] is not None:
-                transliteration += item[2]
-                
         if mode == "Translation":
-            return translation
+            # Extract translated text (e.g., Lake)
+            result = "".join([item[0] for item in data[0] if item[0]])
+            return result
+            
         else:
-            if not transliteration:
-                transliteration = translation # Fallback
+            # Extract transliterated/romanized text (e.g., Kere)
+            result = ""
+            for item in data[0]:
+                if len(item) >= 3 and item[2]:
+                    result += item[2]
             
-            # This removes weird accents (e.g., turning Baṇḍēkoḍigēhaḷḷi into Bandekodigehalli)
-            clean_text = ''.join(c for c in unicodedata.normalize('NFD', transliteration) if unicodedata.category(c) != 'Mn')
+            if not result:
+                return text # Failsafe
             
-            # Capitalize the first letter of each word
-            return clean_text.title()
+            # Remove special accents (turns Maḍivāḷa into Madivala)
+            clean_text = ''.join(c for c in unicodedata.normalize('NFD', result) if unicodedata.category(c) != 'Mn')
+            clean_text = clean_text.title()
+            
+            # Custom spelling preference for Madiwala
+            clean_text = clean_text.replace("Madivala", "Madiwala")
+            
+            return clean_text
             
     except Exception as e:
         return f"Error: {str(e)}"
@@ -47,34 +47,40 @@ def convert_kannada(text, mode):
 st.set_page_config(page_title="Kannada Place Name Converter", page_icon="🌍")
 
 st.title("Kannada Name Converter 🌍")
-st.markdown("Convert multiple Kannada locations into English. You can add them **line by line** below.")
 
-# 1. Typeable Multi-line Box
+# 1. Input Area
 user_input = st.text_area(
-    "Enter Kannada text here (one name per line):", 
+    "Paste your list here (line by line):", 
     value="ಬಂಡೇಕೊಡಿಗೇಹಳ್ಳಿ ಕೆರೆ\nಅಗರ ಕೆರೆ\nಮಡಿವಾಳ ಕೆರೆ",
     height=150
 )
 
 # 2. Options
 option = st.radio(
-    "How would you like to convert?",
+    "Choose output format:",
     ("Translation (e.g., Bandekodigehalli Lake)", "Transliteration (e.g., Bandekodigehalli Kere)")
 )
 
-# 3. Action Button
+# 3. Action
 if st.button("Convert All"):
     if user_input.strip() == "":
-        st.warning("Please enter some Kannada text.")
+        st.warning("Please enter some text.")
     else:
         with st.spinner("Converting..."):
-            # Split the input "down by down" (line by line)
-            lines = [line.strip() for line in user_input.split('\n') if line.strip() != ""]
-            
-            # Determine which mode to use based on the radio button
+            # Keep the exact line breaks as you pasted them
+            lines = user_input.split('\n')
             mode = "Translation" if "Translation" in option else "Transliteration"
             
-            st.write("### Results:")
+            results = []
             for line in lines:
-                result = convert_kannada(line, mode)
-                st.success(f"**Original:** {line}  \n**Result:** {result}")
+                if line.strip() == "":
+                    results.append("") # Preserve blank lines
+                else:
+                    results.append(convert_kannada(line.strip(), mode))
+            
+            # Join it back exactly "down by down"
+            final_output = "\n".join(results)
+            
+            st.write("### Result:")
+            # Output in a single text box for easy Ctrl+C copying
+            st.text_area("Copy your results from here:", value=final_output, height=200)
