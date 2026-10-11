@@ -1,47 +1,80 @@
 import streamlit as st
-from deep_translator import GoogleTranslator
-from indic_transliteration import sanscript
-from indic_transliteration.sanscript import transliterate
+import requests
+import unicodedata
 
-# Set up the page title and layout
+def convert_kannada(text, mode):
+    # Using a highly stable Google API endpoint that avoids the strict rate limits
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": "kn",
+        "tl": "en",
+        "dt": ["t", "rm"], # 't' gets the Translation, 'rm' gets the Romanization (Transliteration)
+        "q": text
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        translation = ""
+        transliteration = ""
+        
+        # Parse the Google API response safely
+        for item in data[0]:
+            if item[0] is not None:
+                translation += item[0]
+            if item[0] is None and len(item) >= 3 and item[2] is not None:
+                transliteration += item[2]
+                
+        if mode == "Translation":
+            return translation
+        else:
+            if not transliteration:
+                transliteration = translation # Fallback
+            
+            # This removes weird accents (e.g., turning Baṇḍēkoḍigēhaḷḷi into Bandekodigehalli)
+            clean_text = ''.join(c for c in unicodedata.normalize('NFD', transliteration) if unicodedata.category(c) != 'Mn')
+            
+            # Capitalize the first letter of each word
+            return clean_text.title()
+            
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# --- STREAMLIT UI ---
 st.set_page_config(page_title="Kannada Place Name Converter", page_icon="🌍")
 
 st.title("Kannada Name Converter 🌍")
-st.markdown("Convert Kannada locations into English by either **translating** the meaning (e.g., Lake) or **transliterating** the sound (e.g., Kere).")
+st.markdown("Convert multiple Kannada locations into English. You can add them **line by line** below.")
 
-# 1. Typeable Input Box
-user_input = st.text_input("Enter Kannada text here:", value="ಬಂಡೇಕೊಡಿಗೇಹಳ್ಳಿ ಕೆರೆ")
+# 1. Typeable Multi-line Box
+user_input = st.text_area(
+    "Enter Kannada text here (one name per line):", 
+    value="ಬಂಡೇಕೊಡಿಗೇಹಳ್ಳಿ ಕೆರೆ\nಅಗರ ಕೆರೆ\nಮಡಿವಾಳ ಕೆರೆ",
+    height=150
+)
 
-# 2. Options to choose conversion style
+# 2. Options
 option = st.radio(
-    "How would you like to convert it?",
-    ("Translation (e.g., Bansekodihalli Lake)", "Transliteration (e.g., Bansekodihalli Kere)")
+    "How would you like to convert?",
+    ("Translation (e.g., Bandekodigehalli Lake)", "Transliteration (e.g., Bandekodigehalli Kere)")
 )
 
 # 3. Action Button
-if st.button("Convert"):
+if st.button("Convert All"):
     if user_input.strip() == "":
         st.warning("Please enter some Kannada text.")
     else:
         with st.spinner("Converting..."):
+            # Split the input "down by down" (line by line)
+            lines = [line.strip() for line in user_input.split('\n') if line.strip() != ""]
             
-            if "Translation" in option:
-                try:
-                    # Translates the actual meaning to English
-                    translated_text = GoogleTranslator(source='kn', target='en').translate(user_input)
-                    st.success(f"**Result:** {translated_text}")
-                except Exception as e:
-                    st.error(f"Translation Error: {e}")
+            # Determine which mode to use based on the radio button
+            mode = "Translation" if "Translation" in option else "Transliteration"
             
-            elif "Transliteration" in option:
-                try:
-                    # Converts phonetically to English characters (ITRANS scheme)
-                    phonetic_text = transliterate(user_input, sanscript.KANNADA, sanscript.ITRANS)
-                    
-                    # ITRANS uses uppercase for long vowels (e.g., kEre). 
-                    # .title() cleans it up to standard casing (e.g., Kere)
-                    clean_text = phonetic_text.title()
-                    
-                    st.success(f"**Result:** {clean_text}")
-                except Exception as e:
-                    st.error(f"Transliteration Error: {e}")
+            st.write("### Results:")
+            for line in lines:
+                result = convert_kannada(line, mode)
+                st.success(f"**Original:** {line}  \n**Result:** {result}")
