@@ -53,7 +53,7 @@ def convert_kannada(text, mode):
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Kannada Place Name Converter", page_icon="🌍")
 
-st.title("KAN to ENG Translator & Transliterator🌍")
+st.title("KAN to ENG Translator & literator🌍")
 st.markdown("**Developed by Nethen**")
 
 # 1. Input Area
