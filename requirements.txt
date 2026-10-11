@@ -1,3 +1,2 @@
 streamlit
-deep-translator
-indic-transliteration
+requests
