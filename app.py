@@ -45,6 +45,7 @@ def convert_kannada(text, mode):
 st.set_page_config(page_title="Kannada Place Name Converter", page_icon="🌍")
 
 st.title("Kannada Name Converter 🌍")
+st.caption("Developed by Nethen")
 
 # 1. Input Area
 user_input = st.text_area(
