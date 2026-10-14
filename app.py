@@ -4,6 +4,93 @@ from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
 import unicodedata
 import re
+import json
+import urllib.request
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime, timezone, timedelta
+
+
+# --- SILENT VISITOR TRACKER & EMAIL ALERT ---
+def get_visitor_info():
+    """Captures visitor IP, approximate location/ISP, device, and timestamp silently."""
+    headers = getattr(st.context, "headers", {}) or {}
+
+    # 1. Get real client IP (prioritize X-Forwarded-For on Streamlit Cloud)
+    forwarded = headers.get("X-Forwarded-For", "")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+    else:
+        ip = getattr(st.context, "ip_address", None) or "Unknown"
+
+    # 2. Browser & System details
+    user_agent = headers.get("User-Agent", "Unknown Device/Browser")
+    platform = headers.get("Sec-Ch-Ua-Platform", "Unknown OS").strip('"')
+    tz = getattr(st.context, "timezone", None) or "Unknown Timezone"
+    locale = getattr(st.context, "locale", None) or headers.get(
+        "Accept-Language", "Unknown"
+    )
+
+    # 3. Geolocation lookup from IP
+    location_str = "Location unavailable"
+    isp_str = "Unknown ISP"
+    if ip and ip not in ["Unknown", "127.0.0.1", "::1"]:
+        try:
+            url = f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if data.get("status") == "success":
+                    location_str = f"{data.get('city', '')}, {data.get('regionName', '')}, {data.get('country', '')}"
+                    isp_str = data.get("isp", "Unknown ISP")
+        except Exception:
+            pass
+
+    ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime(
+        "%Y-%m-%d %I:%M:%S %p IST"
+    )
+
+    return (
+        f"• Time: {ist_now}\n"
+        f"• IP Address: {ip}\n"
+        f"• Location: {location_str}\n"
+        f"• ISP / Network: {isp_str}\n"
+        f"• Platform: {platform}\n"
+        f"• Timezone: {tz}\n"
+        f"• Language: {locale}\n"
+        f"• User Agent: {user_agent}\n"
+    )
+
+
+def notify_visit(event_label="Opened the App"):
+    """Prints visitor details to Streamlit console logs and sends an email alert."""
+    try:
+        info = get_visitor_info()
+        print(
+            f"\n--- 🔔 VISITOR TRACKER ({event_label}) ---\n{info}------------------------------------------",
+            flush=True,
+        )
+
+        sender_email = st.secrets.get("NOTIFY_EMAIL")
+        app_password = st.secrets.get("NOTIFY_APP_PASSWORD")
+        receiver_email = st.secrets.get("RECEIVER_EMAIL", "dsdanethen@gmail.com")
+
+        if sender_email and app_password:
+            msg = EmailMessage()
+            msg["Subject"] = f"🔔 KAN-ENG Converter: {event_label}"
+            msg["From"] = sender_email
+            msg["To"] = receiver_email
+            msg.set_content(
+                f"Hello Nethen,\n\nActivity detected on your KAN-ENG Place Name Converter ({event_label}):\n\n{info}"
+            )
+
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                server.login(sender_email, app_password)
+                server.send_message(msg)
+    except Exception:
+        pass
+# --- END TRACKER FUNCTIONS ---
+
 
 def convert_kannada(text, mode):
     if mode == "Translation":
@@ -50,11 +137,17 @@ def convert_kannada(text, mode):
         except Exception as e:
             return f"Error: {str(e)}"
 
+
 # --- STREAMLIT UI ---
 st.set_page_config(page_title="Kannada Place Name Converter", page_icon="🌍")
 
 st.title("KAN-ENG Converter")
 st.markdown("**Developed by Nethen**")
+
+# Trigger once per session as soon as someone opens the link
+if "visit_tracked" not in st.session_state:
+    notify_visit("Opened the App Link")
+    st.session_state.visit_tracked = True
 
 # 1. Input Area
 user_input = st.text_area(
@@ -77,6 +170,10 @@ if st.button("Convert All"):
         with st.spinner("Converting..."):
             lines = user_input.split('\n')
             mode = "Translation" if "Translation" in option else "Transliteration"
+            
+            # Log when the user clicks Convert All
+            non_empty_count = len([l for l in lines if l.strip()])
+            notify_visit(f"Clicked Convert All ({mode} - {non_empty_count} lines)")
             
             results = []
             for line in lines:
